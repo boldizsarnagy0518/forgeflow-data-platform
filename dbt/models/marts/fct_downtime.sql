@@ -1,0 +1,20 @@
+select
+    downtime_event_id,
+    machine_id,
+    machine_name,
+    machine_type,
+    production_line_id,
+    line_name,
+    factory_id,
+    factory_name,
+    started_at,
+    ended_at,
+    downtime_type,
+    reason_code,
+    downtime_minutes,
+    is_failure,
+    is_open,
+    _batch_id,
+    _source_file_id,
+    _record_checksum
+from {{ ref('int_downtime_durations') }}

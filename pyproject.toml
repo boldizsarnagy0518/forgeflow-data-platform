@@ -1,0 +1,139 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "forgeflow-data-platform"
+version = "0.1.0"
+description = "ForgeFlow: an AI-assisted industrial data reliability platform"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = { text = "MIT" }
+authors = [{ name = "ForgeFlow portfolio project" }]
+keywords = ["data-engineering", "data-quality", "dagster", "dbt", "mcp"]
+dependencies = [
+  "boto3>=1.40,<2",
+  "dagster>=1.11,<2",
+  "dagster-dbt>=0.27,<1",
+  "dbt-core>=1.10,<2",
+  "dbt-postgres>=1.9,<2",
+  "fastapi>=0.116,<1",
+  "mcp>=1.20,<2",
+  "openai>=1.99,<3",
+  "orjson>=3.11,<4",
+  "pandas>=2.2,<3",
+  "pandera[pandas]>=0.25,<1",
+  "psycopg[binary,pool]>=3.2,<4",
+  "pydantic-settings>=2.10,<3",
+  "rich>=14,<15",
+  "sqlalchemy>=2.0,<3",
+  "streamlit>=1.48,<2",
+  "structlog>=25,<26",
+  "tenacity>=9,<10",
+  "typer>=0.16,<1",
+  "uvicorn[standard]>=0.35,<1",
+]
+
+[project.scripts]
+forgeflow = "forgeflow.cli:main"
+forgeflow-api = "forgeflow.api:main"
+forgeflow-mcp = "forgeflow.mcp_server:main"
+forgeflow-dashboard = "forgeflow.dashboard:main"
+
+[dependency-groups]
+dev = [
+  "bandit[toml]>=1.8,<2",
+  "mypy>=1.17,<2",
+  "pandas-stubs>=2.2,<3",
+  "pip-audit>=2.9,<3",
+  "poethepoet>=0.37,<1",
+  "pytest>=8.4,<10",
+  "pytest-asyncio>=1.1,<2",
+  "pytest-cov>=6.2,<8",
+  "pytest-mock>=3.14,<4",
+  "ruff>=0.12,<1",
+  "types-boto3[s3]>=1.40,<2",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/forgeflow"]
+
+[tool.uv]
+package = true
+
+[tool.poe.tasks]
+bootstrap = "uv sync --locked --all-groups"
+up-services = "docker compose up -d --wait postgres minio"
+init-minio = "docker compose run --rm minio-init"
+up = { sequence = ["up-services", "init-minio"] }
+down = "docker compose --profile app down"
+reset = "forgeflow clean"
+seed = "forgeflow generate --scenario clean"
+pipeline = "forgeflow pipeline"
+demo = "forgeflow demo"
+incident-demo = "forgeflow incident-demo"
+recover-demo = "forgeflow recover-demo"
+test = "pytest -m 'not integration'"
+integration = "pytest -m integration"
+coverage = "pytest -m 'not integration' --cov=forgeflow --cov-report=term-missing --cov-report=xml --cov-fail-under=80"
+lint = "ruff check ."
+format = "ruff format ."
+format-check = "ruff format --check ."
+typecheck = "mypy src tests"
+bandit = "bandit -c pyproject.toml -r src"
+audit = "pip-audit --skip-editable --cache-dir .uv-cache/pip-audit --progress-spinner off --timeout 10"
+security = { sequence = ["bandit", "audit"] }
+dbt-compile = "dbt compile --project-dir dbt --profiles-dir dbt"
+dbt-test = "dbt test --project-dir dbt --profiles-dir dbt"
+docs = "dbt docs generate --project-dir dbt --profiles-dir dbt"
+dagster-validate = "dagster definitions validate -w workspace.yaml"
+check = { sequence = ["format-check", "lint", "typecheck", "dagster-validate", "coverage", "security"] }
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+exclude = ["dbt/target", ".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "A", "C4", "DTZ", "LOG", "G", "PIE", "PT", "RET", "RUF", "S", "SIM", "T20", "TRY"]
+ignore = ["E501", "S101", "TRY003"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101", "S105", "S106"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+show_error_codes = true
+pretty = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["dagster.*", "dagster_dbt.*", "pandera.*", "streamlit.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-markers --strict-config"
+testpaths = ["tests"]
+markers = [
+  "integration: requires PostgreSQL and MinIO containers",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["forgeflow"]
+omit = ["src/forgeflow/dashboard.py", "src/forgeflow/dagster_defs.py"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+exclude_also = ["if TYPE_CHECKING:", "if __name__ == .__main__.:"]
+
+[tool.bandit]
+exclude_dirs = ["tests", ".venv", "dbt/target"]
+skips = ["B101"]

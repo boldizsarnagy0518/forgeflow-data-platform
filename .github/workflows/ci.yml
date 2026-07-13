@@ -1,0 +1,121 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: "ci-${{ github.workflow }}-${{ github.ref }}"
+  cancel-in-progress: true
+
+env:
+  UV_FROZEN: "1"
+  UV_NO_PROGRESS: "1"
+  PYTHONUNBUFFERED: "1"
+  DBT_SEND_ANONYMOUS_USAGE_STATS: "false"
+  DAGSTER_DISABLE_TELEMETRY: "1"
+
+jobs:
+  quality:
+    name: Static, unit, coverage, and security checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Scan Git history for committed secrets
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+          GITLEAKS_ENABLE_COMMENTS: "false"
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.16"
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Sync the locked environment
+        run: uv sync --locked --all-groups
+
+      - name: Run repository quality gates
+        run: uv run poe check
+
+  integration:
+    name: PostgreSQL, MinIO, pipeline, and dbt
+    needs: quality
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      POSTGRES_DB: forgeflow
+      POSTGRES_USER: forgeflow
+      POSTGRES_PASSWORD: forgeflow_local_only
+      MINIO_ROOT_USER: forgeflow
+      MINIO_ROOT_PASSWORD: forgeflow_local_only
+      FORGEFLOW_DATABASE_URL: postgresql://forgeflow:forgeflow_local_only@127.0.0.1:5432/forgeflow
+      FORGEFLOW_S3_ENDPOINT: http://127.0.0.1:9000
+      FORGEFLOW_S3_ACCESS_KEY: forgeflow
+      FORGEFLOW_S3_SECRET_KEY: forgeflow_local_only
+      FORGEFLOW_S3_BUCKET: forgeflow-raw
+      FORGEFLOW_DBT_TARGET: ci
+      FORGEFLOW_DBT_HOST: 127.0.0.1
+      FORGEFLOW_DBT_USER: forgeflow
+      FORGEFLOW_DBT_PASSWORD: forgeflow_local_only
+      FORGEFLOW_DBT_DBNAME: forgeflow
+      FORGEFLOW_DBT_SCHEMA: staging
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.16"
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Sync the locked environment
+        run: uv sync --locked --all-groups
+
+      - name: Start PostgreSQL and MinIO
+        run: uv run poe up
+
+      - name: Run service-backed integration tests
+        run: uv run poe integration
+
+      - name: Run the healthy end-to-end demo
+        run: uv run poe demo
+
+      - name: Validate the dbt connection
+        run: uv run dbt debug --project-dir dbt --profiles-dir dbt
+
+      - name: Build models, snapshot, and tests
+        run: uv run dbt build --project-dir dbt --profiles-dir dbt
+
+      - name: Check source freshness
+        run: uv run dbt source freshness --project-dir dbt --profiles-dir dbt
+
+      - name: Generate lineage and catalog artifacts
+        run: uv run dbt docs generate --project-dir dbt --profiles-dir dbt
+
+      - name: Show service state after failure
+        if: failure()
+        run: docker compose ps
+
+      - name: Stop services
+        if: always()
+        run: docker compose down --volumes --remove-orphans

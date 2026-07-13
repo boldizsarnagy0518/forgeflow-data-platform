@@ -1,0 +1,14 @@
+title = "ForgeFlow secret scanning"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Documented synthetic local-only demo credentials"
+paths = [
+  '''\.env\.example$''',
+  '''compose\.yaml$''',
+  '''docs/.*\.md$''',
+  '''infra/postgres/init/004_readonly_role\.sql$''',
+]
+regexes = ['''forgeflow_local_only''', '''forgeflow_reader_local_only''']

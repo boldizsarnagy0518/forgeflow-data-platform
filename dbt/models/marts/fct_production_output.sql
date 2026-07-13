@@ -1,0 +1,21 @@
+select
+    production_order_id,
+    production_line_id,
+    line_name,
+    factory_id,
+    factory_name,
+    product_code,
+    planned_start_at,
+    planned_end_at,
+    actual_start_at,
+    actual_end_at,
+    planned_quantity,
+    actual_quantity,
+    quantity_variance,
+    target_attainment_ratio,
+    actual_duration_hours,
+    status,
+    _batch_id,
+    _source_file_id,
+    _record_checksum
+from {{ ref('int_order_performance') }}

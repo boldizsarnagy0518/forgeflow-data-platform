@@ -1,0 +1,45 @@
+# Python and uv
+.venv/
+.uv-cache/
+__pycache__/
+*.py[cod]
+.python-version
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.tmp-check/
+.test-tmp-*/
+*.tmp-checkpytest-cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+
+# ForgeFlow runtime data
+.forgeflow/
+data/generated/
+artifacts/
+
+# dbt and Dagster runtime
+dbt/target/
+dbt/logs/
+dbt/.user.yml
+dbt_packages/
+.dagster/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Containers
+postgres-data/
+minio-data/

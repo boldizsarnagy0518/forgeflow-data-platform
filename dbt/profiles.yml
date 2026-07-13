@@ -1,0 +1,18 @@
+forgeflow:
+  target: "{{ env_var('FORGEFLOW_DBT_TARGET', 'local') }}"
+  outputs:
+    local: &postgres_output
+      type: postgres
+      host: "{{ env_var('FORGEFLOW_DBT_HOST', '127.0.0.1') }}"
+      port: "{{ env_var('FORGEFLOW_DBT_PORT', '5432') | int }}"
+      user: "{{ env_var('FORGEFLOW_DBT_USER', 'forgeflow') }}"
+      password: "{{ env_var('FORGEFLOW_DBT_PASSWORD', 'forgeflow_local_only') }}"
+      dbname: "{{ env_var('FORGEFLOW_DBT_DBNAME', 'forgeflow') }}"
+      schema: "{{ env_var('FORGEFLOW_DBT_SCHEMA', 'staging') }}"
+      threads: 4
+      connect_timeout: 10
+      retries: 2
+      sslmode: disable
+    ci:
+      <<: *postgres_output
+      threads: 2

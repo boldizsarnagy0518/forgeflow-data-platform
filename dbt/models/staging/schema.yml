@@ -1,0 +1,113 @@
+version: 2
+
+models:
+  - name: stg_factories
+    description: Type-stable, lineage-preserving factory records.
+    columns:
+      - name: factory_id
+        description: Stable factory business key.
+        data_tests: [not_null, unique]
+      - name: _source_file_id
+        description: File-ledger identifier from ingestion.
+        data_tests: [not_null]
+
+  - name: stg_production_lines
+    description: Type-stable production-line records with factory ownership.
+    columns:
+      - name: production_line_id
+        description: Stable production-line business key.
+        data_tests: [not_null, unique]
+      - name: factory_id
+        description: Owning factory business key.
+        data_tests:
+          - relationships:
+              arguments: {to: "ref('stg_factories')", field: factory_id}
+
+  - name: stg_machines
+    description: Current machine attributes used as the input to the SCD2 snapshot.
+    columns:
+      - name: machine_id
+        description: Stable machine business key.
+        data_tests: [not_null, unique]
+      - name: production_line_id
+        description: Owning production-line business key.
+        data_tests:
+          - relationships:
+              arguments: {to: "ref('stg_production_lines')", field: production_line_id}
+      - name: updated_at
+        description: Source change timestamp driving the machine snapshot.
+        data_tests: [not_null]
+
+  - name: stg_shifts
+    description: Factory shift windows with anonymous operator identifiers.
+    columns:
+      - name: shift_id
+        description: Stable shift business key.
+        data_tests: [not_null, unique]
+      - name: ended_at
+        description: Exclusive shift-window end.
+        data_tests:
+          - end_after_start:
+              arguments: {start_column: started_at}
+
+  - name: stg_production_orders
+    description: Production targets, actual output, schedule, and order state.
+    columns:
+      - name: production_order_id
+        description: Stable production-order business key.
+        data_tests: [not_null, unique]
+      - name: planned_quantity
+        description: Target unit count.
+        data_tests: [non_negative]
+      - name: actual_quantity
+        description: Realized unit count before applying cross-field business rules.
+        data_tests: [non_negative]
+
+  - name: stg_machine_telemetry
+    description: Valid machine measurements preserving separate event and ingestion times.
+    columns:
+      - name: telemetry_id
+        description: Stable telemetry-event business key.
+        data_tests: [not_null, unique]
+      - name: event_timestamp
+        description: Source event time used by late-arrival processing.
+        data_tests: [not_null]
+
+  - name: stg_downtime_events
+    description: Planned and unplanned machine-stop intervals.
+    columns:
+      - name: downtime_event_id
+        description: Stable downtime-event business key.
+        data_tests: [not_null, unique]
+      - name: ended_at
+        description: Interval end; null for a currently open event.
+        data_tests:
+          - end_after_start:
+              arguments: {start_column: started_at}
+
+  - name: stg_maintenance_work_orders
+    description: Maintenance demand, priority, schedule, and completion state.
+    columns:
+      - name: maintenance_work_order_id
+        description: Stable work-order business key.
+        data_tests: [not_null, unique]
+
+  - name: stg_quality_inspections
+    description: Inspection sample outcomes attached to production orders.
+    columns:
+      - name: quality_inspection_id
+        description: Stable inspection business key.
+        data_tests: [not_null, unique]
+      - name: failed_units
+        description: Failed units within the inspected sample.
+        data_tests: [non_negative]
+
+  - name: stg_product_defects
+    description: Defect counts by category and severity for each inspection.
+    columns:
+      - name: product_defect_id
+        description: Stable product-defect business key.
+        data_tests: [not_null, unique]
+      - name: defect_count
+        description: Count of defects in this category.
+        data_tests: [non_negative]

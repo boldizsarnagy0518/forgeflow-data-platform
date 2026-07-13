@@ -1,0 +1,235 @@
+version: 2
+
+models:
+  - name: dim_factory
+    description: Current factory attributes for analytical joins and filtering.
+    columns:
+      - name: factory_id
+        description: Stable factory business key.
+        data_tests: [not_null, unique]
+      - name: timezone
+        description: IANA timezone for local operational interpretation.
+
+  - name: dim_production_line
+    description: Current production-line attributes with denormalized factory name.
+    columns:
+      - name: production_line_id
+        description: Stable production-line business key.
+        data_tests: [not_null, unique]
+      - name: factory_id
+        description: Owning factory key.
+        data_tests:
+          - relationships:
+              arguments: {to: "ref('dim_factory')", field: factory_id}
+      - name: nominal_capacity_per_hour
+        description: Engineering target throughput for the line.
+
+  - name: dim_machine
+    description: Current machine attributes and complete factory/line ownership context.
+    columns:
+      - name: machine_id
+        description: Stable machine business key.
+        data_tests: [not_null, unique]
+      - name: production_line_id
+        description: Owning production-line key.
+        data_tests:
+          - relationships:
+              arguments: {to: "ref('dim_production_line')", field: production_line_id}
+      - name: factory_id
+        description: Owning factory key reached through the production line.
+
+  - name: fct_production_output
+    description: Order-grain targets, actual output, timing, and source lineage.
+    columns:
+      - name: production_order_id
+        description: Fact grain and stable production-order key.
+        data_tests: [not_null, unique]
+      - name: planned_quantity
+        description: Target units for the order.
+        data_tests: [non_negative]
+      - name: actual_quantity
+        description: Reported units; the incident rule requires this to be at most 150% of plan.
+        data_tests: [non_negative]
+      - name: target_attainment_ratio
+        description: "{{ doc('target_attainment_ratio') }}"
+      - name: _source_file_id
+        description: Source file supporting the fact and incident evidence.
+        data_tests: [not_null]
+
+  - name: fct_downtime
+    description: Downtime-event grain with duration, failure classification, and lineage.
+    columns:
+      - name: downtime_event_id
+        description: Fact grain and stable downtime-event key.
+        data_tests: [not_null, unique]
+      - name: downtime_minutes
+        description: Elapsed downtime through event end or now for open events.
+        data_tests: [non_negative]
+      - name: is_failure
+        description: True for unplanned breakdowns included in reliability metrics.
+
+  - name: fct_quality_inspections
+    description: Inspection-grain sample outcomes and categorized defect evidence.
+    columns:
+      - name: quality_inspection_id
+        description: Fact grain and stable inspection key.
+        data_tests: [not_null, unique]
+      - name: sampled_defect_rate
+        description: "{{ doc('sampled_defect_rate') }}"
+      - name: defect_occurrences
+        description: Sum of categorized defects; may exceed failed units when categories overlap.
+
+  - name: fct_machine_telemetry_daily
+    description: Daily machine telemetry rollup used to bound reviewer-facing payloads.
+    columns:
+      - name: machine_id
+        description: Machine component of the machine-day grain.
+        data_tests:
+          - relationships:
+              arguments: {to: "ref('dim_machine')", field: machine_id}
+      - name: telemetry_date
+        description: UTC calendar day component of the machine-day grain.
+      - name: p95_vibration_mm_s
+        description: Within-day 95th percentile vibration; descriptive, not an anomaly verdict.
+      - name: late_arrival_count
+        description: Measurements accepted more than 24 hours after their event timestamp.
+
+  - name: mart_factory_performance
+    description: >-
+      Factory-level output, inspected quality, and downtime summary without join fanout.
+      Published as marts.factory_performance for the shared service layer.
+    columns:
+      - name: factory_id
+        description: One row per current factory.
+        data_tests: [not_null, unique]
+      - name: target_attainment_ratio
+        description: "{{ doc('target_attainment_ratio') }}"
+      - name: sampled_defect_rate
+        description: "{{ doc('sampled_defect_rate') }}"
+      - name: unplanned_downtime_hours
+        description: Total unplanned stop duration; no availability denominator is implied.
+        data_tests: [non_negative]
+
+  - name: mart_machine_reliability
+    description: Machine-level breakdown, repair, downtime, late-arrival, and telemetry-age evidence.
+    columns:
+      - name: machine_id
+        description: One row per current machine.
+        data_tests: [not_null, unique]
+      - name: mean_time_between_failures_hours
+        description: "{{ doc('mtbf') }}"
+      - name: mean_time_to_repair_hours
+        description: "{{ doc('mttr') }}"
+      - name: resolved_breakdown_count
+        description: Completed breakdowns forming the eligible MTTR population.
+        data_tests: [non_negative]
+      - name: telemetry_age_hours
+        description: Hours since the latest source event; null when no telemetry exists.
+      - name: has_stale_telemetry
+        description: True when event age exceeds the explicit six-hour demo threshold or is missing.
+
+  - name: mart_maintenance_backlog
+    description: Open and in-progress work orders with age and schedule-overdue evidence.
+    columns:
+      - name: maintenance_work_order_id
+        description: Work-order grain.
+        data_tests: [not_null, unique]
+      - name: backlog_age_days
+        description: Elapsed days since creation; a queue-age measure, not repair time.
+        data_tests: [non_negative]
+      - name: is_overdue
+        description: True when scheduled_for is earlier than model execution time.
+
+  - name: mart_downtime_by_reason
+    description: Factory/line/type/reason downtime aggregates for operational investigation.
+    columns:
+      - name: reason_code
+        description: Controlled source reason rather than an inferred root cause.
+      - name: downtime_hours
+        description: Total elapsed hours for events in the group.
+        data_tests: [non_negative]
+
+  - name: mart_inspection_outcomes
+    description: Daily factory inspection samples and defect outcomes.
+    columns:
+      - name: inspection_date
+        description: UTC inspection date.
+      - name: sampled_defect_rate
+        description: "{{ doc('sampled_defect_rate') }}"
+
+  - name: mart_data_freshness
+    description: >-
+      {{ doc('data_freshness') }} Published as marts.data_freshness for the shared service layer.
+    columns:
+      - name: source_name
+        description: One row per required source.
+        data_tests: [not_null, unique]
+      - name: latest_ingested_at
+        description: Latest warehouse acceptance timestamp for the source.
+      - name: latest_event_at
+        description: Latest domain timestamp selected for that source.
+      - name: latest_recorded_at
+        description: Event timestamp when present, otherwise the ingestion timestamp; used for stable ordering.
+      - name: freshness_status
+        description: Missing, fresh, warning, or stale based on explicit ingestion-age thresholds.
+        data_tests:
+          - accepted_values:
+              arguments: {values: [missing, fresh, warning, stale]}
+
+  - name: mart_data_quality_trends
+    description: Daily persisted quality-result counts by check type and scope.
+    columns:
+      - name: quality_date
+        description: UTC date of recorded check execution.
+      - name: failed_check_count
+        description: Failed checks, independent of their configured severity.
+        data_tests: [non_negative]
+      - name: error_check_count
+        description: Failed checks with error severity that prevent a healthy run.
+        data_tests: [non_negative]
+
+exposures:
+  - name: forgeflow_operations_dashboard
+    label: ForgeFlow operations dashboard
+    type: dashboard
+    maturity: medium
+    url: http://127.0.0.1:8501
+    description: >-
+      Local Streamlit views for factory performance, reliability, freshness, quality trends,
+      and guided incident investigation.
+    depends_on:
+      - ref('mart_factory_performance')
+      - ref('mart_machine_reliability')
+      - ref('mart_data_freshness')
+      - ref('mart_data_quality_trends')
+    owner: &owner
+      name: ForgeFlow portfolio project
+      email: forgeflow@example.invalid
+
+  - name: forgeflow_operational_api
+    label: ForgeFlow operational API
+    type: application
+    maturity: medium
+    url: http://127.0.0.1:8000/docs
+    description: Bounded read-only operational and metadata endpoints backed by ForgeFlowService.
+    depends_on:
+      - ref('fct_production_output')
+      - ref('mart_factory_performance')
+      - ref('mart_machine_reliability')
+      - ref('mart_maintenance_backlog')
+      - ref('mart_downtime_by_reason')
+      - ref('mart_inspection_outcomes')
+      - ref('mart_data_freshness')
+    owner: *owner
+
+  - name: forgeflow_mcp_context
+    label: ForgeFlow MCP context surface
+    type: application
+    maturity: medium
+    description: Compact quality, lineage, run, and incident context for local AI clients.
+    depends_on:
+      - ref('fct_production_output')
+      - ref('mart_factory_performance')
+      - ref('mart_machine_reliability')
+      - ref('mart_data_quality_trends')
+    owner: *owner

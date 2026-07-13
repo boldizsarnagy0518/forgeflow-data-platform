@@ -1,0 +1,16 @@
+selectors:
+  - name: telemetry_and_downstream
+    description: Rebuild the late-arriving telemetry model and every dependent reliability mart.
+    definition:
+      method: fqn
+      value: forgeflow.intermediate.int_machine_telemetry
+      children: true
+  - name: incident_impact
+    description: Test production output and its downstream factory-performance consumers.
+    definition:
+      union:
+        - method: fqn
+          value: forgeflow.marts.fct_production_output
+          children: true
+        - method: test_name
+          value: assert_actual_quantity_within_plan

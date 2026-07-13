@@ -1,0 +1,353 @@
+version: 2
+
+sources:
+  - name: raw
+    description: >-
+      Contract-accepted synthetic source records. Every table retains file, batch, row,
+      ingestion-time, and checksum lineage; rejected rows live in quarantine.records.
+    schema: raw
+    tables:
+      - name: factories
+        description: Factory master data and local operating timezone.
+        config: &source_freshness
+          loaded_at_field: _ingested_at
+          freshness:
+            warn_after: {count: 24, period: hour}
+            error_after: {count: 72, period: hour}
+        columns:
+          - name: factory_id
+            description: Stable synthetic factory identifier.
+            data_tests: [not_null, unique]
+          - name: factory_name
+            description: Human-readable synthetic factory name.
+            data_tests: [not_null]
+          - name: country_code
+            description: Synthetic site country code (HU, DE, or CZ).
+          - name: timezone
+            description: IANA timezone used to interpret local factory operations.
+          - name: opened_on
+            description: Date the synthetic factory began operating.
+          - name: status
+            description: Current active or inactive master-data state.
+          - name: updated_at
+            description: Source-system change timestamp used for history tracking.
+          - &batch_lineage
+            name: _batch_id
+            description: Deterministic batch that delivered this record.
+            data_tests: [not_null]
+          - &file_lineage
+            name: _source_file_id
+            description: UUID of the persisted source-file ledger entry.
+            data_tests: [not_null]
+          - &row_lineage
+            name: _source_row_number
+            description: One-based CSV row number, including the header row.
+            data_tests: [not_null]
+          - &ingested_lineage
+            name: _ingested_at
+            description: Warehouse acceptance timestamp in UTC.
+            data_tests: [not_null]
+          - &checksum_lineage
+            name: _record_checksum
+            description: SHA-256 checksum of the canonical source record.
+            data_tests: [not_null]
+
+      - name: production_lines
+        description: Production-line master data nested beneath factories.
+        config: *source_freshness
+        columns:
+          - name: production_line_id
+            description: Stable synthetic production-line identifier.
+            data_tests: [not_null, unique]
+          - name: factory_id
+            description: Factory that owns the line.
+            data_tests:
+              - not_null
+              - relationships:
+                  arguments: {to: "source('raw', 'factories')", field: factory_id}
+          - name: line_name
+            description: Human-readable synthetic line name.
+          - name: product_family
+            description: Motor, pump, or gearbox family produced by the line.
+          - name: nominal_capacity_per_hour
+            description: Engineering target throughput, not a measured output.
+          - name: status
+            description: Current active or inactive state.
+          - name: updated_at
+            description: Source-system change timestamp.
+          - *batch_lineage
+          - *file_lineage
+          - *row_lineage
+          - *ingested_lineage
+          - *checksum_lineage
+
+      - name: machines
+        description: Machine master data and current lifecycle state.
+        config: *source_freshness
+        columns:
+          - name: machine_id
+            description: Stable synthetic machine identifier.
+            data_tests: [not_null, unique]
+          - name: production_line_id
+            description: Production line containing the machine.
+            data_tests:
+              - not_null
+              - relationships:
+                  arguments: {to: "source('raw', 'production_lines')", field: production_line_id}
+          - name: machine_name
+            description: Human-readable synthetic machine name.
+          - name: machine_type
+            description: CNC, press, robot, welder, or inspection equipment class.
+          - name: manufacturer
+            description: Synthetic manufacturer label.
+          - name: model
+            description: Synthetic manufacturer model label.
+          - name: installed_on
+            description: Machine installation date.
+          - name: status
+            description: Active, maintenance, or retired lifecycle state.
+          - name: updated_at
+            description: Source timestamp used by the machine SCD2 snapshot.
+            data_tests: [not_null]
+          - *batch_lineage
+          - *file_lineage
+          - *row_lineage
+          - *ingested_lineage
+          - *checksum_lineage
+
+      - name: shifts
+        description: Factory shift windows and anonymous synthetic operator identifiers.
+        config: *source_freshness
+        columns:
+          - name: shift_id
+            description: Stable synthetic shift identifier.
+            data_tests: [not_null, unique]
+          - name: factory_id
+            description: Factory where the shift occurs.
+            data_tests:
+              - not_null
+              - relationships:
+                  arguments: {to: "source('raw', 'factories')", field: factory_id}
+          - name: shift_name
+            description: Morning, afternoon, or night shift.
+          - name: started_at
+            description: Inclusive shift start timestamp.
+          - name: ended_at
+            description: Exclusive shift end timestamp.
+          - name: operator_id
+            description: Anonymous deterministic operator identifier.
+          - name: updated_at
+            description: Source-system change timestamp.
+          - *batch_lineage
+          - *file_lineage
+          - *row_lineage
+          - *ingested_lineage
+          - *checksum_lineage
+
+      - name: production_orders
+        description: Planned and realized production quantities by line and order.
+        config: *source_freshness
+        columns:
+          - name: production_order_id
+            description: Stable synthetic production-order identifier.
+            data_tests: [not_null, unique]
+          - name: production_line_id
+            description: Line scheduled to execute the order.
+            data_tests:
+              - not_null
+              - relationships:
+                  arguments: {to: "source('raw', 'production_lines')", field: production_line_id}
+          - name: product_code
+            description: Synthetic product stock-keeping code.
+          - name: planned_start_at
+            description: Scheduled production start.
+          - name: planned_end_at
+            description: Scheduled production end.
+          - name: actual_start_at
+            description: Actual start when work has begun.
+          - name: actual_end_at
+            description: Actual finish when work has completed.
+          - name: planned_quantity
+            description: Target units for the order.
+          - name: actual_quantity
+            description: >-
+              Reported units. Contract-valid values can still violate the dbt rule that
+              output must not exceed 150 percent of plan.
+          - name: status
+            description: Planned, in-progress, completed, or cancelled state.
+          - name: updated_at
+            description: Source-system change timestamp.
+          - *batch_lineage
+          - *file_lineage
+          - *row_lineage
+          - *ingested_lineage
+          - *checksum_lineage
+
+      - name: machine_telemetry
+        description: Time-series machine measurements with event and arrival timestamps.
+        config: *source_freshness
+        columns:
+          - name: telemetry_id
+            description: Stable synthetic telemetry event identifier.
+            data_tests: [not_null, unique]
+          - name: machine_id
+            description: Machine that emitted the measurement.
+            data_tests:
+              - not_null
+              - relationships:
+                  arguments: {to: "source('raw', 'machines')", field: machine_id}
+          - name: event_timestamp
+            description: Source event time; may legitimately arrive late.
+            data_tests: [not_null]
+          - name: temperature_c
+            description: Machine temperature in degrees Celsius.
+          - name: vibration_mm_s
+            description: Vibration velocity in millimetres per second.
+          - name: pressure_bar
+            description: Machine pressure in bar.
+          - name: energy_kwh
+            description: Synthetic energy counter in kilowatt-hours.
+          - name: operating_state
+            description: Running, idle, or stopped source state.
+          - name: updated_at
+            description: Source-system change timestamp.
+          - *batch_lineage
+          - *file_lineage
+          - *row_lineage
+          - *ingested_lineage
+          - *checksum_lineage
+
+      - name: downtime_events
+        description: Planned and unplanned machine-stop intervals.
+        config: *source_freshness
+        columns:
+          - name: downtime_event_id
+            description: Stable synthetic downtime-event identifier.
+            data_tests: [not_null, unique]
+          - name: machine_id
+            description: Affected machine.
+            data_tests:
+              - not_null
+              - relationships:
+                  arguments: {to: "source('raw', 'machines')", field: machine_id}
+          - name: started_at
+            description: Downtime interval start.
+          - name: ended_at
+            description: Downtime interval end; null means still open.
+          - name: downtime_type
+            description: Planned or unplanned classification.
+          - name: reason_code
+            description: Controlled operational reason category.
+          - name: updated_at
+            description: Source-system change timestamp.
+          - *batch_lineage
+          - *file_lineage
+          - *row_lineage
+          - *ingested_lineage
+          - *checksum_lineage
+
+      - name: maintenance_work_orders
+        description: Machine maintenance demand and completion state.
+        config: *source_freshness
+        columns:
+          - name: maintenance_work_order_id
+            description: Stable synthetic work-order identifier.
+            data_tests: [not_null, unique]
+          - name: machine_id
+            description: Machine requiring work.
+            data_tests:
+              - not_null
+              - relationships:
+                  arguments: {to: "source('raw', 'machines')", field: machine_id}
+          - name: created_at
+            description: Work-order creation timestamp.
+          - name: scheduled_for
+            description: Planned maintenance timestamp.
+          - name: completed_at
+            description: Completion timestamp when completed.
+          - name: maintenance_type
+            description: Preventive, corrective, or inspection category.
+          - name: priority
+            description: Low, medium, high, or critical priority.
+          - name: status
+            description: Current work-order workflow state.
+          - name: technician_id
+            description: Anonymous deterministic technician identifier.
+          - name: updated_at
+            description: Source-system change timestamp.
+          - *batch_lineage
+          - *file_lineage
+          - *row_lineage
+          - *ingested_lineage
+          - *checksum_lineage
+
+      - name: quality_inspections
+        description: Sampled product quality outcomes for production orders.
+        config: *source_freshness
+        columns:
+          - name: quality_inspection_id
+            description: Stable synthetic inspection identifier.
+            data_tests: [not_null, unique]
+          - name: production_order_id
+            description: Production order being inspected.
+            data_tests:
+              - not_null
+              - relationships:
+                  arguments: {to: "source('raw', 'production_orders')", field: production_order_id}
+          - name: inspected_at
+            description: Inspection event timestamp.
+          - name: sample_size
+            description: Number of inspected units.
+          - name: passed_units
+            description: Sample units that passed inspection.
+          - name: failed_units
+            description: Sample units that failed inspection.
+          - name: result
+            description: Overall pass or fail result.
+          - name: inspector_id
+            description: Anonymous deterministic inspector identifier.
+          - name: updated_at
+            description: Source-system change timestamp.
+          - *batch_lineage
+          - *file_lineage
+          - *row_lineage
+          - *ingested_lineage
+          - *checksum_lineage
+
+      - name: product_defects
+        description: Defect categories and counts observed during an inspection.
+        config: *source_freshness
+        columns:
+          - name: product_defect_id
+            description: Stable synthetic defect-record identifier.
+            data_tests: [not_null, unique]
+          - name: quality_inspection_id
+            description: Inspection that observed the defect.
+            data_tests:
+              - not_null
+              - relationships:
+                  arguments: {to: "source('raw', 'quality_inspections')", field: quality_inspection_id}
+          - name: detected_at
+            description: Defect detection timestamp.
+          - name: defect_type
+            description: Controlled dimensional, surface, assembly, material, or functional category.
+          - name: severity
+            description: Minor, major, or critical impact classification.
+          - name: defect_count
+            description: Units exhibiting this category within the inspection.
+          - name: updated_at
+            description: Source-system change timestamp.
+          - *batch_lineage
+          - *file_lineage
+          - *row_lineage
+          - *ingested_lineage
+          - *checksum_lineage
+
+  - name: observability
+    description: Operational evidence persisted by ForgeFlow and summarized by dbt marts.
+    schema: observability
+    tables:
+      - name: pipeline_runs
+        description: One finalized or active ledger row per pipeline run.
+      - name: quality_results
+        description: Structured contract, dbt, freshness, and anomaly check outcomes.

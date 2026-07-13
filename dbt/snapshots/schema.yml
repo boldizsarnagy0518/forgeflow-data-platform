@@ -1,0 +1,18 @@
+version: 2
+
+snapshots:
+  - name: machine_history
+    description: >-
+      SCD Type 2 machine history using machine_id as the business key and source updated_at as
+      the change clock. dbt_valid_from/dbt_valid_to bound each version; hard deletes are invalidated.
+    columns:
+      - name: machine_id
+        description: Stable business key shared by all historical versions.
+        data_tests: [not_null]
+      - name: status
+        description: Machine lifecycle state for this version.
+      - name: dbt_valid_from
+        description: Inclusive dbt validity timestamp.
+        data_tests: [not_null]
+      - name: dbt_valid_to
+        description: Exclusive validity timestamp; null marks the current version.

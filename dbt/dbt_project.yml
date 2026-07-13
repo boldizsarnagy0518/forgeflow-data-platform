@@ -1,0 +1,49 @@
+name: forgeflow
+version: "1.0.0"
+config-version: 2
+
+profile: forgeflow
+
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+docs-paths: ["docs"]
+
+target-path: target
+clean-targets: ["target", "dbt_packages", "logs"]
+
+vars:
+  telemetry_lookback_hours: 48
+  telemetry_stale_after_hours: 6
+  backfill_start: null
+  backfill_end: null
+
+models:
+  forgeflow:
+    +persist_docs:
+      relation: true
+      columns: true
+    staging:
+      +schema: staging
+      +materialized: view
+      +tags: ["staging"]
+    intermediate:
+      +schema: intermediate
+      +materialized: view
+      +tags: ["intermediate"]
+    marts:
+      +schema: marts
+      +materialized: table
+      +tags: ["marts"]
+
+snapshots:
+  forgeflow:
+    +target_schema: intermediate
+    +tags: ["snapshot", "scd2"]
+
+data_tests:
+  forgeflow:
+    +store_failures: true

@@ -1,0 +1,67 @@
+version: 2
+
+models:
+  - name: int_machine_context
+    description: Reusable factory-line-machine ownership and descriptive context.
+    columns:
+      - name: machine_id
+        description: Stable machine business key.
+        data_tests: [not_null, unique]
+      - name: factory_id
+        description: Factory reached through the machine's production line.
+        data_tests: [not_null]
+
+  - name: int_machine_telemetry
+    description: >-
+      Incremental telemetry enriched with machine context. Each run reprocesses a configurable
+      event-time lookback (48 hours by default) so late arrivals and updates replace the same
+      telemetry_id without duplicating history. backfill_start/backfill_end override the lookback.
+    columns:
+      - name: telemetry_id
+        description: Unique event key used by delete-and-insert incremental merges.
+        data_tests: [not_null, unique]
+      - name: arrival_lag_hours
+        description: Hours between source event time and warehouse acceptance; negative values flag bad clocks.
+      - name: is_late_arrival
+        description: True when arrival occurred more than 24 hours after event time.
+
+  - name: int_order_performance
+    description: Order output and duration measures with factory and line context.
+    columns:
+      - name: production_order_id
+        description: Stable production-order key.
+        data_tests: [not_null, unique]
+      - name: target_attainment_ratio
+        description: Actual divided by planned units; null when the planned quantity is zero.
+
+  - name: int_downtime_durations
+    description: Downtime durations and explainable failure classification with machine context.
+    columns:
+      - name: downtime_event_id
+        description: Stable downtime-event key.
+        data_tests: [not_null, unique]
+      - name: downtime_minutes
+        description: Elapsed stop minutes through ended_at or the current time for an open event.
+        data_tests: [non_negative]
+      - name: is_failure
+        description: True only for unplanned breakdown events used in MTBF and MTTR.
+
+  - name: int_machine_failure_intervals
+    description: Breakdown repair durations and operating time since the previous completed breakdown.
+    columns:
+      - name: downtime_event_id
+        description: Breakdown event key.
+        data_tests: [not_null, unique]
+      - name: hours_since_previous_failure
+        description: >-
+          Hours from the prior breakdown end to this breakdown start. The first failure and any
+          failure following an unclosed event are excluded from MTBF by returning null.
+
+  - name: int_inspection_defects
+    description: Inspection outcomes with categorized defect occurrences and factory ownership.
+    columns:
+      - name: quality_inspection_id
+        description: Stable inspection key.
+        data_tests: [not_null, unique]
+      - name: sampled_defect_rate
+        description: Failed sampled units divided by sample size; null for an empty sample.

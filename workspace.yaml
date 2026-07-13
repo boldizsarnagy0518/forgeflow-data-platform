@@ -1,0 +1,6 @@
+load_from:
+  - python_module:
+      module_name: forgeflow.dagster_defs
+      attribute: defs
+      working_directory: .
+      location_name: forgeflow

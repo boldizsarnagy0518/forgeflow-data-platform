@@ -1,0 +1,30 @@
+select
+    machine_id,
+    machine_name,
+    machine_type,
+    production_line_id,
+    line_name,
+    factory_id,
+    factory_name,
+    (event_timestamp at time zone 'UTC')::date as telemetry_date,
+    count(*) as sample_count,
+    avg(temperature_c) as average_temperature_c,
+    max(temperature_c) as maximum_temperature_c,
+    avg(vibration_mm_s) as average_vibration_mm_s,
+    percentile_cont(0.95) within group (order by vibration_mm_s) as p95_vibration_mm_s,
+    avg(pressure_bar) as average_pressure_bar,
+    max(energy_kwh) - min(energy_kwh) as observed_energy_delta_kwh,
+    count(*) filter (where operating_state = 'running') as running_sample_count,
+    count(*) filter (where is_late_arrival) as late_arrival_count,
+    max(event_timestamp) as latest_event_at,
+    max(_ingested_at) as latest_ingested_at
+from {{ ref('int_machine_telemetry') }}
+group by
+    machine_id,
+    machine_name,
+    machine_type,
+    production_line_id,
+    line_name,
+    factory_id,
+    factory_name,
+    (event_timestamp at time zone 'UTC')::date
