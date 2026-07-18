@@ -13,7 +13,6 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  UV_FROZEN: "1"
   UV_NO_PROGRESS: "1"
   PYTHONUNBUFFERED: "1"
   DBT_SEND_ANONYMOUS_USAGE_STATS: "false"
