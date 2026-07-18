@@ -11,6 +11,7 @@ from uuid import UUID
 
 import pytest
 import typer
+from click import unstyle
 from rich.console import Console
 from typer.testing import CliRunner
 
@@ -994,7 +995,8 @@ def test_backfill_validation_fails_before_any_external_dependency(
     result = cli_runner.invoke(cli_module.app, ["backfill", *arguments])
 
     assert result.exit_code == 2
-    assert message in result.output
+    normalized_output = " ".join(unstyle(result.output).split())
+    assert message in normalized_output
 
 
 def test_clean_aborts_without_touching_dependencies_when_confirmation_is_declined(
